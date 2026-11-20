@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="de">
+	<head>
+		<meta charset="utf-8">
+		<!-- Plan „Web“: eigene Hülle für Safari auf dem iPhone (Kopie von Godots godot.html mit Änderungen). -->
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+		<meta name="apple-mobile-web-app-capable" content="yes">
+		<meta name="mobile-web-app-capable" content="yes">
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+		<meta name="theme-color" content="#121318">
+		<meta name="format-detection" content="telephone=no">
+		<title>Rabenfurt Dev</title>
+		<style>
+html, body, #canvas {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+html, body {
+	width: 100%;
+	height: 100%;
+}
+
+body {
+	color: #ece4d4;
+	background-color: #121318;
+	overflow: hidden;
+	touch-action: none;
+	/* Kein Gummiband-Scrollen, keine Lupe/Kopiermenü beim langen Drücken, kein grauer Tipp-Schleier. */
+	position: fixed;
+	inset: 0;
+	overscroll-behavior: none;
+	-webkit-user-select: none;
+	user-select: none;
+	-webkit-touch-callout: none;
+	-webkit-tap-highlight-color: transparent;
+	-webkit-text-size-adjust: 100%;
+}
+
+#canvas {
+	display: block;
+	touch-action: none;
+}
+
+#canvas:focus {
+	outline: none;
+}
+
+/* Misst die Sicherheitsränder (Notch, Home-Leiste); das Spiel liest sie über rabenfurtSafeArea(). */
+#safe-probe {
+	position: fixed;
+	left: 0;
+	top: 0;
+	width: 0;
+	height: 0;
+	visibility: hidden;
+	pointer-events: none;
+	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+#status, #status-splash, #status-progress {
+	position: absolute;
+	left: 0;
+	right: 0;
+}
+
+#status, #status-splash {
+	top: 0;
+	bottom: 0;
+}
+
+#status {
+	background-color: #121318;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	visibility: hidden;
+}
+
+#status-splash {
+	max-height: 100%;
+	max-width: 100%;
+	margin: auto;
+}
+
+#status-splash.show-image--false {
+	display: none;
+}
+
+#status-splash.fullsize--true {
+	height: 100%;
+	width: 100%;
+	object-fit: contain;
+}
+
+#status-splash.use-filter--false {
+	image-rendering: pixelated;
+}
+
+#status-title {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: calc(10% + 3.5rem + env(safe-area-inset-bottom, 0px));
+	text-align: center;
+	font-family: Georgia, 'Times New Roman', serif;
+	font-size: 1.1rem;
+	letter-spacing: 0.05em;
+	color: #ece4d4;
+}
+
+
+#status-version {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: calc(10% - 2rem + env(safe-area-inset-bottom, 0px));
+	text-align: center;
+	font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+	font-size: 0.7rem;
+	color: #8a8070;
+}
+#status-progress, #status-notice {
+	display: none;
+}
+
+#status-progress {
+	bottom: calc(10% + env(safe-area-inset-bottom, 0px));
+	width: 60%;
+	margin: 0 auto;
+	accent-color: #d8a83a;
+}
+
+#status-notice {
+	background-color: #3a1f17;
+	border-radius: 0.5rem;
+	border: 1px solid #9b3943;
+	color: #ece4d4;
+	font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+	line-height: 1.3;
+	margin: 0 2rem;
+	overflow: hidden;
+	padding: 1rem;
+	text-align: center;
+	z-index: 1;
+}
+		</style>
+		<link id="-gd-engine-icon" rel="icon" type="image/png" href="index.icon.png" />
+<link rel="apple-touch-icon" href="index.apple-touch-icon.png"/>
+<link rel="manifest" href="index.manifest.json">
+<meta name="apple-mobile-web-app-title" content="Rabenfurt Dev">
+	</head>
+	<body>
+		<canvas id="canvas">
+			Dein Browser kann das Spiel nicht anzeigen.
+		</canvas>
+
+		<noscript>
+			Bitte JavaScript einschalten.
+		</noscript>
+
+		<div id="safe-probe"></div>
+
+		<div id="status">
+			<img id="status-splash" class="show-image--true fullsize--true use-filter--true" src="index.png" alt="">
+			<div id="status-title">Rabenfurt wird geladen …</div>
+			<progress id="status-progress"></progress>
+			<div id="status-notice"></div>
+			<div id="status-version"></div>
+		</div>
+
+		<script>
+// Plan „Web“: Anbindung für das Spiel (autoload/web.gd).
+// Version des Exports (setzt tools/web_bauen.sh ein): Anzeige, Kennung (steht auch in version.txt)
+// und Cache-Präfix des Service Workers dieser Fassung.
+window.RABENFURT_BUILD = '20.11.2026 15:15 · 7cc989f';
+window.RABENFURT_BUILD_ID = '20261120-151534-7cc989f';
+window.RABENFURT_CACHE_PREFIX = '2D game-dev-sw-cache-';
+
+// Neue Version online? Holt version.txt am Cache vorbei (höchstens 3 s) und meldet die neue
+// Kennung an `done`, sonst ''. Ohne Netz oder bei einem Export von Hand: ''.
+window.rabenfurtCheckVersion = function (done) {
+	const id = window.RABENFURT_BUILD_ID;
+	if (!id || id.indexOf('__') === 0 || !window.fetch) {
+		done('');
+		return;
+	}
+	let answered = false;
+	function answer(value) {
+		if (!answered) {
+			answered = true;
+			done(value);
+		}
+	}
+	setTimeout(function () {
+		answer('');
+	}, 3000);
+	fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(function (response) {
+		return response.ok ? response.text() : '';
+	}).then(function (text) {
+		const online = (text || '').trim();
+		answer(online !== '' && online !== id ? online : '');
+	}).catch(function () {
+		answer('');
+	});
+};
+
+// Lädt die neue Version: meldet nur den Service Worker dieser Seite ab und löscht nur seinen
+// Cache Storage. IndexedDB und localStorage (dort liegt der Spielstand, user://) bleiben
+// unangetastet. index.js und index.wasm werden beim Server nachgefragt, das Spielpaket hat
+// ohnehin die Kennung in der Adresse. Höchstens zwei Versuche je Kennung (sessionStorage),
+// damit ein Fehler keine Endlosschleife baut.
+window.rabenfurtReloadInto = function (newId) {
+	const key = 'rabenfurtReload:' + newId;
+	let tries = 0;
+	try {
+		tries = parseInt(sessionStorage.getItem(key) || '0', 10);
+		sessionStorage.setItem(key, String(tries + 1));
+	} catch (e) {
+		// Ohne sessionStorage nur einmal.
+		tries = window.rabenfurtReloadTried ? 2 : 0;
+		window.rabenfurtReloadTried = true;
+	}
+	if (tries >= 2) {
+		return Promise.resolve(false);
+	}
+	const scope = new URL('./', location.href).href;
+	const steps = [];
+	if (navigator.serviceWorker) {
+		steps.push(navigator.serviceWorker.getRegistrations().then(function (registrations) {
+			return Promise.all(registrations.filter(function (r) {
+				return r.scope === scope;
+			}).map(function (r) {
+				return r.unregister();
+			}));
+		}).catch(function () {}));
+	}
+	if (window.caches && window.RABENFURT_CACHE_PREFIX.indexOf('__') !== 0) {
+		steps.push(caches.keys().then(function (keys) {
+			return Promise.all(keys.filter(function (k) {
+				return k.indexOf(window.RABENFURT_CACHE_PREFIX) === 0;
+			}).map(function (k) {
+				return caches.delete(k);
+			}));
+		}).catch(function () {}));
+	}
+	['index.js', 'index.wasm'].forEach(function (file) {
+		steps.push(fetch(file, { cache: 'no-cache' }).then(function (r) {
+			return r.arrayBuffer();
+		}).catch(function () {}));
+	});
+	return Promise.all(steps).then(function () {
+		location.replace(location.pathname + '?v=' + encodeURIComponent(newId));
+		return true;
+	});
+};
+
+// Sicherheitsränder in CSS-Pixeln + Fenstergröße: [links, oben, rechts, unten, breite, höhe].
+window.rabenfurtSafeArea = function () {
+	const style = getComputedStyle(document.getElementById('safe-probe'));
+	return [
+		parseFloat(style.paddingLeft) || 0,
+		parseFloat(style.paddingTop) || 0,
+		parseFloat(style.paddingRight) || 0,
+		parseFloat(style.paddingBottom) || 0,
+		window.innerWidth,
+		window.innerHeight,
+	];
+};
+
+// Seite wird verlassen oder in den Hintergrund geschickt: das Spiel speichert (rabenfurtOnHide setzt web.gd).
+(function () {
+	function call(name) {
+		if (typeof window[name] === 'function') {
+			try {
+				window[name]();
+			} catch (err) {
+				console.error(err);
+			}
+		}
+	}
+	document.addEventListener('visibilitychange', function () {
+		call(document.visibilityState === 'hidden' ? 'rabenfurtOnHide' : 'rabenfurtOnShow');
+	});
+	window.addEventListener('pagehide', function () {
+		call('rabenfurtOnHide');
+	});
+}());
+
+// Zurück-Geste im Safari-Tab (Wischen vom linken Rand) bleibt im Spiel: ein eigener Verlaufseintrag,
+// der beim Zurückgehen sofort wieder angelegt wird. Erst nach dem ersten Tippen (sonst ignoriert Safari ihn).
+(function () {
+	let armed = false;
+	function arm() {
+		if (armed) {
+			return;
+		}
+		armed = true;
+		history.pushState({ rabenfurt: true }, '');
+	}
+	window.addEventListener('popstate', function () {
+		history.pushState({ rabenfurt: true }, '');
+	});
+	document.addEventListener('touchend', arm, { capture: true, passive: true });
+	document.addEventListener('mouseup', arm, { capture: true });
+}());
+
+// Plan „iPhone-Fenster“: Fehler der Seite sammeln (das Protokoll im Spiel liest window.rabenfurtErrors).
+// Bleibt das Spiel selbst stehen (Fehler aus Godots Hauptschleife, WebGL verloren), zeigt die Seite in Dev- und
+// Testversion (window.rabenfurtTestTools, setzt EventLog) einen Kasten mit „Protokoll kopieren“: Das letzte
+// Protokoll des Spiels liegt in window.rabenfurtLog.
+(function () {
+	const errors = [];
+	window.rabenfurtErrors = errors;
+	let shown = false;
+	function note(text) {
+		const time = (performance.now() / 1000).toFixed(1);
+		errors.push(time + ' s: ' + text);
+		if (errors.length > 20) {
+			errors.shift();
+		}
+		if (window.rabenfurtTestTools && !shown) {
+			shown = true;
+			setTimeout(function () { rescue(text); }, 300);
+		}
+	}
+	window.addEventListener('error', function (event) {
+		note((event.message || 'Fehler') + (event.filename ? ' (' + event.filename.split('/').pop() + ':' + event.lineno + ')' : ''));
+	});
+	window.addEventListener('unhandledrejection', function (event) {
+		const reason = event.reason;
+		note('Promise: ' + (reason && reason.message ? reason.message : String(reason)));
+	});
+	window.addEventListener('webglcontextlost', function () {
+		note('WebGL-Kontext verloren (zu viel Grafikspeicher?)');
+	}, true);
+	function copy(text, done) {
+		function fallback() {
+			try {
+				const area = document.createElement('textarea');
+				area.value = text;
+				area.setAttribute('readonly', '');
+				area.style.position = 'fixed';
+				area.style.opacity = '0';
+				document.body.appendChild(area);
+				area.select();
+				area.setSelectionRange(0, text.length);
+				const ok = document.execCommand('copy');
+				document.body.removeChild(area);
+				done(ok);
+			} catch (err) {
+				done(false);
+			}
+		}
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+		} else {
+			fallback();
+		}
+	}
+	function rescue(text) {
+		const box = document.createElement('div');
+		box.id = 'rescue';
+		box.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:10;'
+			+ 'background:#1c1d23;color:#ece4d4;border:2px solid #000;box-shadow:0 6px 0 #000;border-radius:12px;padding:14px;'
+			+ 'font:15px/1.35 -apple-system,system-ui,sans-serif;-webkit-user-select:text;user-select:text;';
+		const message = document.createElement('div');
+		message.textContent = 'Das Spiel hängt: ' + text + ' – bitte Protokoll kopieren und ins Feedback einfügen.';
+		box.appendChild(message);
+		const row = document.createElement('div');
+		row.style.cssText = 'display:flex;gap:10px;margin-top:12px;';
+		function button(label, gold, action) {
+			const b = document.createElement('button');
+			b.textContent = label;
+			b.style.cssText = 'flex:1;min-height:48px;border:2px solid #000;border-radius:10px;font:600 16px system-ui,sans-serif;'
+				+ (gold ? 'background:#d8a83a;color:#2a1a06;' : 'background:#4a3220;color:#ece4d4;');
+			b.addEventListener('click', action);
+			row.appendChild(b);
+			return b;
+		}
+		const copyButton = button('Protokoll kopieren', true, function () {
+			const report = (window.rabenfurtLog || 'Kein Protokoll aus dem Spiel.')
+				+ '\n\nFehler der Seite:\n' + errors.join('\n');
+			copy(report, function (ok) {
+				copyButton.textContent = ok ? 'Kopiert' : 'Kopieren ging nicht';
+			});
+		});
+		button('Neu laden', false, function () { location.reload(); });
+		box.appendChild(row);
+		document.body.appendChild(box);
+	}
+}());
+
+// Kein Zoomen mit zwei Fingern oder Doppeltipp (iOS ignoriert user-scalable=no).
+document.addEventListener('gesturestart', function (event) {
+	event.preventDefault();
+}, { passive: false });
+document.addEventListener('dblclick', function (event) {
+	event.preventDefault();
+}, { passive: false });
+		</script>
+		<script src="index.js"></script>
+		<script>
+const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":53573516,"index.wasm":37902138},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4,"serviceWorker":"index.service.worker.js"};
+const GODOT_THREADS_ENABLED = false;
+const engine = new Engine(GODOT_CONFIG);
+
+(function () {
+	const statusOverlay = document.getElementById('status');
+	const statusProgress = document.getElementById('status-progress');
+	const statusNotice = document.getElementById('status-notice');
+	const statusTitle = document.getElementById('status-title');
+
+	let initializing = true;
+	let statusMode = '';
+
+	function setStatusMode(mode) {
+		if (statusMode === mode || !initializing) {
+			return;
+		}
+		if (mode === 'hidden') {
+			statusOverlay.remove();
+			initializing = false;
+			return;
+		}
+		statusOverlay.style.visibility = 'visible';
+		statusProgress.style.display = mode === 'progress' ? 'block' : 'none';
+		statusTitle.style.display = mode === 'progress' ? 'block' : 'none';
+		statusNotice.style.display = mode === 'notice' ? 'block' : 'none';
+		statusMode = mode;
+	}
+
+	function setStatusNotice(text) {
+		while (statusNotice.lastChild) {
+			statusNotice.removeChild(statusNotice.lastChild);
+		}
+		const lines = text.split('\n');
+		lines.forEach((line) => {
+			statusNotice.appendChild(document.createTextNode(line));
+			statusNotice.appendChild(document.createElement('br'));
+		});
+	}
+
+	function displayFailureNotice(err) {
+		console.error(err);
+		const intro = 'Das Spiel konnte nicht starten.\n';
+		if (err instanceof Error) {
+			setStatusNotice(intro + err.message);
+		} else if (typeof err === 'string') {
+			setStatusNotice(intro + err);
+		} else {
+			setStatusNotice(intro + 'Unbekannter Fehler.');
+		}
+		setStatusMode('notice');
+		initializing = false;
+	}
+
+	const missing = Engine.getMissingFeatures({
+		threads: GODOT_THREADS_ENABLED,
+	});
+
+	if (missing.length !== 0) {
+		const missingMsg = 'Dem Browser fehlt, was das Spiel braucht:\n';
+		displayFailureNotice(missingMsg + missing.join('\n'));
+	} else {
+		setStatusMode('progress');
+		if (window.RABENFURT_BUILD.indexOf('__') !== 0) {
+			document.getElementById('status-version').textContent = 'Version ' + window.RABENFURT_BUILD;
+		}
+		// Neue Version online (alte Seite aus einem Cache)? Dann erst neu laden, sonst starten.
+		window.rabenfurtCheckVersion(function (newId) {
+			if (newId !== '') {
+				statusTitle.textContent = 'Neue Version wird geladen …';
+				window.rabenfurtReloadInto(newId).then(function (reloading) {
+					if (!reloading) {
+						start();
+					}
+				});
+				return;
+			}
+			start();
+		});
+	}
+
+	function start() {
+		const buildId = window.RABENFURT_BUILD_ID;
+		const known = buildId && buildId.indexOf('__') !== 0;
+		const override = {};
+		if (known) {
+			// Spielpaket mit der Kennung in der Adresse: Seite und Paket gehören immer zusammen,
+			// kein Cache kann ein altes Paket zu einer neuen Seite liefern.
+			const pack = 'index.pck?v=' + encodeURIComponent(buildId);
+			override.fileSizes = Object.assign({}, GODOT_CONFIG.fileSizes);
+			override.fileSizes[pack] = GODOT_CONFIG.fileSizes['index.pck'];
+			override.mainPack = pack;
+		}
+		engine.startGame(Object.assign(override, {
+			'onProgress': function (current, total) {
+				if (current > 0 && total > 0) {
+					statusProgress.value = current;
+					statusProgress.max = total;
+					statusTitle.textContent = 'Rabenfurt wird geladen … ' + Math.floor(100 * current / total) + ' %';
+				} else {
+					statusProgress.removeAttribute('value');
+					statusProgress.removeAttribute('max');
+				}
+			},
+		})).then(() => {
+			setStatusMode('hidden');
+		}, displayFailureNotice);
+	}
+}());
+		</script>
+	</body>
+</html>
+
